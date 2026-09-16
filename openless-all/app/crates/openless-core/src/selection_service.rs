@@ -607,6 +607,26 @@ impl SelectionApi for SelectionService {
     ) -> BoxFuture<'static, Result<SessionId, BackendError>> {
         let inner = Arc::clone(&self.inner);
         Box::pin(async move {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                let active = {
+                    let state = inner.state.read().expect("selection state lock poisoned");
+                    matches!(
+                        state.snapshot.phase,
+                        SelectionPhase::Capturing | SelectionPhase::Preview | SelectionPhase::Applying
+                    )
+                };
+                if !active {
+                    break;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(BackendError::new(
+                        BackendErrorCode::Busy,
+                        "a selection session is already active (timeout waiting for prior session)",
+                    ));
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
             let session_id = inner.begin(&request)?;
             let result = async {
                 let capture = inner

@@ -53,6 +53,8 @@ export function SelectionPolishPreview() {
     } catch (reason) {
       setError(String(reason));
       setBusy(false);
+    } finally {
+      setBusy(false);
     }
   };
 
