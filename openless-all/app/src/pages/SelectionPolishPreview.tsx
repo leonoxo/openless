@@ -59,7 +59,7 @@ export function SelectionPolishPreview() {
   };
 
   return (
-    <main style={{ display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box', padding: 18, background: 'var(--ol-surface)', color: 'var(--ol-ink)' }}>
+    <main style={{ display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box', flex: 1, minWidth: '100vw', maxWidth: '100vw', padding: 18, background: 'var(--ol-surface)', color: 'var(--ol-ink)' }}>
       <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{t('selectionPolishPreview.title')}</div>
