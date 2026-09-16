@@ -24,7 +24,7 @@ assert.match(
   /Err\(error\) if error\.is_outcome_unknown\(\) => \{[\s\S]*?return Err\(BackendError::new\(\s*BackendErrorCode::OutcomeUnknown,/,
   'an uncertain TSF delivery must return before any fallback can duplicate it',
 );
-assert.match(events, /DictationInsertStatus::CopiedFallback => "已复制，请手动粘贴"/, 'copied output must not be reported as an insertion failure');
+assert.match(events, /DictationInsertStatus::CopiedFallback =>\s*\{?\s*"capsule\.dictation\.copiedPaste"/, 'copied output must be mapped to the copy-success i18n key, not an insertion failure');
 assert.match(events, /BackendEventKind::InsertFallback\(fallback\) => \{[\s\S]*?show_core_insert_fallback\(text, &fallback\.reason\)/, 'the fallback event must reach the native card');
 assert.match(capsule, /'insert:fallback'[\s\S]*?setInsertFallback\(event\.payload \?\? null\)/, 'the capsule must consume the fallback card payload');
 assert.match(capsule, /return <InsertFallbackCard payload=\{insertFallback\} \/>/, 'the copied text must remain visible in the fallback card');

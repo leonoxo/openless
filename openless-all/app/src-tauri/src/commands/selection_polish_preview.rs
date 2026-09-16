@@ -45,11 +45,33 @@ pub async fn confirm_selection_polish_preview(
     let session_id = snapshot
         .session_id
         .ok_or_else(|| "selection preview is not active".to_string())?;
-    core.services()
+    // instrumentation: confirm 成功/失敗此前全無 log，無法區分「點擊被吞」與
+    // 「到達後端但 apply 失敗」；先記錄入口與結果，定位後再撤。
+    // 單位注意：chars()（字數），不是 bytes——繁中 1 字 3 bytes，混用會誤判截斷。
+    let source_len = snapshot
+        .source_text
+        .as_deref()
+        .map_or(0, |s| s.chars().count());
+    log::info!(
+        "[selection-polish] confirm: entry text_chars={} source_chars={}",
+        text.chars().count(),
+        source_len
+    );
+    let result = core
+        .services()
         .selection
         .confirm(session_id, Some(text))
         .await
-        .map_err(|error| error.message)
+        .map_err(|error| error.message);
+    match &result {
+        Ok(()) => {
+            log::info!("[selection-polish] confirm: ok")
+        }
+        Err(message) => {
+            log::warn!("[selection-polish] confirm: err message={}", message)
+        }
+    }
+    result
 }
 
 #[tauri::command]

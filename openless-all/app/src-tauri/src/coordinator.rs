@@ -93,6 +93,9 @@ fn show_vocab_suggestion_card(inner: &Arc<Inner>) {
         return;
     };
     let height = VOCAB_CARD_CHROME_HEIGHT + VOCAB_CARD_ROW_HEIGHT * pending.len() as f64;
+    // 卡片要弹在改动处附近：取最后一条带坐标的建议（用户最后改的那个词的位置）。
+    // 全部都没有 anchor 时是 None，定位退回右下角兜底。
+    let anchor = pending.iter().rev().find_map(|c| c.anchor.clone());
     let inner_for_main = Arc::clone(inner);
     let _ = capsule.run_on_main_thread(move |capsule| {
         let inner = inner_for_main;
@@ -125,9 +128,12 @@ fn show_vocab_suggestion_card(inner: &Arc<Inner>) {
         if let Err(e) = capsule.set_size(VOCAB_CARD_WIDTH, height) {
             log::warn!("[vocab-card] resize failed: {e}");
         }
-        if let Err(e) =
-            capsule.position_vocab_card(VOCAB_CARD_WIDTH, height, VOCAB_CARD_EDGE_MARGIN)
-        {
+        if let Err(e) = capsule.position_vocab_card(
+            VOCAB_CARD_WIDTH,
+            height,
+            VOCAB_CARD_EDGE_MARGIN,
+            anchor,
+        ) {
             log::warn!("[vocab-card] position failed: {e}");
         }
         // 位置同理：`maybe_position_capsule_bottom_center` 的去重缓存只记「显示器 +

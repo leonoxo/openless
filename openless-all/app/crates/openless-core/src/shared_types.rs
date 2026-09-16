@@ -237,7 +237,7 @@ pub use crate::types::{CorrectionRule, RuleSource};
 /// 只存在内存里，不落盘：建议是易逝的 —— 卡片消失就当没发生，用户下次改同一个词会再
 /// 产生一条。这也是不做「拒绝名单」的原因：一份用户看不见的名单，只会让他将来纳闷
 /// 「为什么这个词它不学了」。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingCorrection {
     pub id: String,
@@ -245,6 +245,10 @@ pub struct PendingCorrection {
     pub pattern: String,
     /// 用户最后要的那个词 —— 点「好」之后进词汇表的就是它。
     pub replacement: String,
+    /// 改动发生处的文字框屏幕坐标（logical points）。`None` = AX 没报位置，
+    /// 卡片定位退回右下角兜底。带默认值：老快照/旧 payload 没有这个字段时不炸。
+    #[serde(default)]
+    pub anchor: Option<crate::host_document::EditAnchor>,
 }
 
 /// 一张卡片上最多列几条。同一次听写里改好几个词会合并到一张卡；再多就该丢最老的了，
@@ -2994,10 +2998,12 @@ mod tests {
             style_pack_prompt(&pack, StylePromptKind::DictationAsr),
             "ASR prompt marker"
         );
-        assert_eq!(
-            style_pack_prompt(&pack, StylePromptKind::Selection),
-            "selected-text prompt marker"
-        );
+        // Light 為非 Raw 圈選模式，prompt 末尾附加中文書寫系統規則（見 style_packs::SELECTION_PROMPT_SCRIPT_RULE）。
+        let selection_prompt = style_pack_prompt(&pack, StylePromptKind::Selection);
+        assert!(selection_prompt.starts_with("selected-text prompt marker\n\n"));
+        assert!(selection_prompt.ends_with(
+            "【最高優先硬性規則】輸出必須與原文保持完全相同的中文書寫系統：原文為繁體中文時，輸出只能是繁體中文；原文為簡體中文時，輸出只能是簡體中文；繁簡混合時以占多數者為準。嚴禁繁簡混用，嚴禁輸出中途由繁體轉簡體（或反之），全文每一個字都必須與原文書寫系統一致。"
+        ));
     }
 
     #[test]

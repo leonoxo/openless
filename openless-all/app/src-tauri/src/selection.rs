@@ -460,13 +460,71 @@ pub(crate) fn validate_selection_insertion_target(
 /// Cmd+C + 剪贴板快照（与 `capture_selection_with_status` 的兜底一致）。
 #[cfg(target_os = "macos")]
 fn read_selection_for_validation() -> Option<String> {
-    if let Some(text) = macos_ax::read_selected_text() {
+    // instrumentation：用 probe 版拿 AX 失敗「卡在哪一步」(focused_err / selected_err /
+    // 空字串)＋focused element 的 owning app pid／AXRole，區分「Chrome 根本不暴露
+    // AXFocusedUIElement」vs「focused 有但無選區」vs「選區為空」vs「焦點跑進我們
+    // 自己的預覽窗 textarea（focused_pid==自己 ⇒ Cmd+C 讀不到原 app 選區＝誤殺）」。
+    // 回傳文字與 read_selected_text 相同，行為不變。
+    let (ax_text, ax_stage, focused_pid) = macos_ax::read_selected_text_probe();
+    // L1 probe：focused element 屬於哪個 app（-1＝讀不到）。own_pid 用於判斷焦點
+    // 是否落在 OpenLess 自己的預覽窗。
+    let own_pid = std::process::id() as i32;
+    let focus_owner = if focused_pid > 0 {
+        if focused_pid == own_pid {
+            "<self:preview-window>".to_string()
+        } else {
+            focused_pid.to_string()
+        }
+    } else {
+        "?".to_string()
+    };
+    if let Some(text) = ax_text {
         let trimmed = text.trim();
         if !trimmed.is_empty() {
+            log::info!(
+                "[selection-polish] validate read: ax_direct chars={} stage={} focused_pid={} front={}",
+                trimmed.chars().count(),
+                ax_stage,
+                focus_owner,
+                current_front_app().unwrap_or_else(|| "<none>".into())
+            );
             return Some(truncate_selection(trimmed));
         }
     }
-    let text = simulate_copy_and_read()?;
+    // instrumentation：AX 直讀失敗/空 → 落入 Cmd+C 兜底。同時記錄「此刻前台 app」：
+    // 若前台是 OpenLess 自己＝預覽窗（非激活 NSPanel）搶走了 activation（never-steal-focus
+    // 設計被破壞）；若是 Chrome＝web 文件 focus / 選區狀態問題（Chrome 不暴露 AXSelectedText）。
+    let front_now = current_front_app().unwrap_or_else(|| "<none>".to_string());
+    log::warn!(
+        "[selection-polish] validate read: ax stage={} focused_pid={} front={}; falling back to simulate_copy",
+        ax_stage,
+        focus_owner,
+        front_now
+    );
+    // 兜底給一次 retry（行為與 build15 相同，純取證、不增刪行為）；改走 diag 版以記錄 miss 原因。
+    let text = match simulate_copy_and_read_diag() {
+        Ok(t) => t,
+        Err(reason) => {
+            log::info!(
+                "[selection-polish] validate read: simulate_copy miss reason={:?}, retrying after 200ms",
+                reason
+            );
+            std::thread::sleep(Duration::from_millis(200));
+            match simulate_copy_and_read_diag() {
+                Ok(t) => {
+                    log::info!("[selection-polish] validate read: simulate_copy retry OK");
+                    t
+                }
+                Err(reason2) => {
+                    log::warn!(
+                        "[selection-polish] validate read: simulate_copy retry still miss reason={:?}",
+                        reason2
+                    );
+                    return None;
+                }
+            }
+        }
+    };
     let trimmed = text.trim();
     (!trimmed.is_empty()).then(|| truncate_selection(trimmed))
 }
@@ -981,6 +1039,9 @@ mod macos_ax {
             attribute: CFStringRef,
             value: *mut CFTypeRef,
         ) -> AxError;
+        // L1 probe: focused element 的 owning app pid（區分「焦點在我們預覽窗
+        // textarea」vs「焦點在原 app 但不暴露選區」）。
+        fn AXUIElementGetPid(element: AxUiElementRef, pid: *mut i32) -> i32;
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -997,7 +1058,7 @@ mod macos_ax {
             buffer: *mut c_char,
             buffer_size: isize,
             encoding: u32,
-        ) -> bool;
+        ) -> u8;
         fn CFStringGetLength(s: CFStringRef) -> isize;
         fn CFStringGetMaximumSizeForEncoding(length: isize, encoding: u32) -> isize;
     }
@@ -1058,6 +1119,87 @@ mod macos_ax {
         }
     }
 
+    /// probe 版：與 read_selected_text 邏輯相同，但回傳「失敗卡在哪一步」的 tag、
+    /// focused element 的角色（AXRole）與 owning app pid，供 validate 取證：
+    /// focused_pid == 本 app pid ⇒ 焦點在我們自己的預覽窗（Cmd+C 讀不到原 app 選區，
+    /// 安全門誤殺）；focused_pid == 原 app ⇒ 該 app 焦點元素不暴露選區屬性。
+    /// 純診斷、臨時，定位後移除。
+    pub fn read_selected_text_probe() -> (Option<String>, String, i32) {
+        unsafe {
+            let system = AXUIElementCreateSystemWide();
+            if system.is_null() {
+                return (None, "system_null".to_string(), -1);
+            }
+            let focused_attr =
+                cfstring_from_static(b"AXFocusedUIElement\0").unwrap_or(std::ptr::null());
+            let selected_attr =
+                cfstring_from_static(b"AXSelectedText\0").unwrap_or(std::ptr::null());
+            if focused_attr.is_null() || selected_attr.is_null() {
+                if !system.is_null() {
+                    CFRelease(system as CFTypeRef);
+                }
+                if !focused_attr.is_null() {
+                    CFRelease(focused_attr);
+                }
+                if !selected_attr.is_null() {
+                    CFRelease(selected_attr);
+                }
+                return (None, "attr_null".to_string(), -1);
+            }
+            let mut focused: CFTypeRef = std::ptr::null();
+            let err = AXUIElementCopyAttributeValue(system, focused_attr, &mut focused);
+            CFRelease(system as CFTypeRef);
+            CFRelease(focused_attr);
+            if err != AX_ERROR_SUCCESS || focused.is_null() {
+                CFRelease(selected_attr);
+                return (None, format!("focused_err={}", err), -1);
+            }
+            // L1 probe: focused element 的 pid 與角色（在 release focused 之前讀）。
+            let mut focused_pid: i32 = -1;
+            let _: i32 = AXUIElementGetPid(focused as AxUiElementRef, &mut focused_pid);
+            let mut stage_extra = String::new();
+            if !focused.is_null() {
+                let role_attr = cfstring_from_static(b"AXRole\0").unwrap_or(std::ptr::null());
+                if !role_attr.is_null() {
+                    let mut role_val: CFTypeRef = std::ptr::null();
+                    let _: i32 = AXUIElementCopyAttributeValue(
+                        focused as AxUiElementRef,
+                        role_attr,
+                        &mut role_val,
+                    );
+                    CFRelease(role_attr);
+                    if !role_val.is_null() {
+                        let role = cfstring_to_rust(role_val as CFStringRef);
+                        CFRelease(role_val);
+                        stage_extra = format!(" role={}", role.unwrap_or_default());
+                    }
+                }
+            }
+            let mut selected: CFTypeRef = std::ptr::null();
+            let err2 = AXUIElementCopyAttributeValue(
+                focused as AxUiElementRef,
+                selected_attr,
+                &mut selected,
+            );
+            CFRelease(focused);
+            CFRelease(selected_attr);
+            if err2 != AX_ERROR_SUCCESS || selected.is_null() {
+                return (
+                    None,
+                    format!("selected_err={}{}", err2, stage_extra),
+                    focused_pid,
+                );
+            }
+            let result = cfstring_to_rust(selected);
+            CFRelease(selected);
+            match &result {
+                Some(s) if !s.trim().is_empty() => (Some(s.clone()), "ok".to_string(), focused_pid),
+                Some(_) => (None, "empty".to_string(), focused_pid),
+                None => (None, "cfstring_to_rust_failed".to_string(), focused_pid),
+            }
+        }
+    }
+
     unsafe fn cfstring_from_static(bytes_with_nul: &[u8]) -> Option<CFStringRef> {
         let cstr = CStr::from_bytes_with_nul(bytes_with_nul).ok()?;
         let s =
@@ -1087,7 +1229,7 @@ mod macos_ax {
             max_bytes,
             K_CF_STRING_ENCODING_UTF8,
         );
-        if !ok {
+        if ok == 0 {
             return None;
         }
         let cstr = CStr::from_ptr(buf.as_ptr() as *const c_char);

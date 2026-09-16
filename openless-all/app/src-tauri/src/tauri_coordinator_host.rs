@@ -394,11 +394,31 @@ impl TauriCapsuleWindow {
         width: f64,
         height: f64,
         edge_margin: f64,
+        anchor: Option<crate::host_document::EditAnchor>,
     ) -> tauri::Result<()> {
         let Some(window) = self.window() else {
             return Ok(());
         };
-        let Some(monitor) = window.current_monitor()? else {
+        // 有 anchor 时以「包含改动处的显示器」为准 —— 改动在副屏上时卡片就该在
+        // 副屏上，而不是胶囊所在的那台。
+        let monitor = match &anchor {
+            Some(anchor) => window
+                .available_monitors()?
+                .into_iter()
+                .find(|m| {
+                    let scale = m.scale_factor();
+                    let size = m.size();
+                    let position = m.position();
+                    let x = position.x as f64 / scale;
+                    let y = position.y as f64 / scale;
+                    let w = size.width as f64 / scale;
+                    let h = size.height as f64 / scale;
+                    anchor.x >= x && anchor.x < x + w && anchor.y >= y && anchor.y < y + h
+                })
+                .or_else(|| window.current_monitor().ok().flatten()),
+            None => window.current_monitor().ok().flatten(),
+        };
+        let Some(monitor) = monitor else {
             return Ok(());
         };
         let scale = monitor.scale_factor();
@@ -408,10 +428,38 @@ impl TauriCapsuleWindow {
         let monitor_height = size.height as f64 / scale;
         let monitor_x = position.x as f64 / scale;
         let monitor_y = position.y as f64 / scale;
-        window.set_position(tauri::LogicalPosition::new(
-            monitor_x + monitor_width - width - edge_margin,
-            monitor_y + monitor_height - height - 80.0,
-        ))
+
+        // AX 的 AXPosition/AXSize 是全局屏幕 logical points（主显示器左上角为原点，
+        // y 向下），与上面换算后的显示器坐标同一坐标系，可以直接比较。
+        let (x, y) = match anchor {
+            Some(anchor) => {
+                // 水平：卡片中心对齐文字框中心，夹在显示器内。
+                let left = monitor_x + edge_margin;
+                let right = monitor_x + monitor_width - width - edge_margin;
+                let mut x = (anchor.x + anchor.width / 2.0 - width / 2.0).clamp(left, right);
+                x = if right < left { monitor_x + (monitor_width - width) / 2.0 } else { x };
+                // 垂直：先贴文字框下方 12pt；下方放不下就改放到上方；都放不下才
+                // 退到显示器底部。
+                let below = anchor.y + anchor.height + 12.0;
+                let above = anchor.y - height - 12.0;
+                let bottom = monitor_y + monitor_height - height - 80.0;
+                let mut y = if below + height <= monitor_y + monitor_height - edge_margin {
+                    below
+                } else if above >= monitor_y + edge_margin {
+                    above
+                } else {
+                    bottom
+                };
+                y = y.clamp(monitor_y + edge_margin, bottom);
+                (x, y)
+            }
+            // 没有位置信息：维持原来的右下角兜底。
+            None => (
+                monitor_x + monitor_width - width - edge_margin,
+                monitor_y + monitor_height - height - 80.0,
+            ),
+        };
+        window.set_position(tauri::LogicalPosition::new(x, y))
     }
 
     pub(crate) fn position_fallback_card(&self, width: f64, height: f64) -> tauri::Result<()> {

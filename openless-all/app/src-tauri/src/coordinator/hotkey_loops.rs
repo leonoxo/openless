@@ -448,13 +448,16 @@ fn handle_selection_workspace_hotkey_pressed(inner: &Arc<Inner>) {
         match result {
             Ok(_) => match inner.backend.services().selection.snapshot().await {
                 Ok(snapshot) => {
+                    // 文案走前端 i18n：后端只送语义 key（capsule.selectionPolish.*），
+                    // Capsule.tsx 的 resolveCapsuleMessage 按用户语言解析，避免中文
+                    // 硬编码进事件负载（zh-TW 会看到简体）。
                     let message = match snapshot.phase {
-                        openless_core::SelectionPhase::Preview => "已打开预览，等待确认",
+                        openless_core::SelectionPhase::Preview => "capsule.selectionPolish.previewOpen",
                         openless_core::SelectionPhase::Completed => match snapshot.insert_outcome {
                             Some(openless_core::InsertOutcome::CopiedFallback) => {
-                                "已复制结果，请手动粘贴"
+                                "capsule.selectionPolish.copiedPaste"
                             }
-                            _ => "已替换",
+                            _ => "capsule.selectionPolish.replaced",
                         },
                         _ => return,
                     };
@@ -471,18 +474,21 @@ fn handle_selection_workspace_hotkey_pressed(inner: &Arc<Inner>) {
             },
             Err(error) => {
                 log::warn!("[selection-polish] hotkey workflow failed: {error}");
+                // 同上行：后端只送 i18n key，前端按语言解析（见 resolveCapsuleMessage）。
                 let message = match error.message.as_str() {
                     "selectionPolishNoSelection" | "selected text must not be empty" => {
-                        "未选中内容"
+                        "capsule.selectionPolish.noSelection"
                     }
-                    "selectionPolishTargetUnavailable" => "目标输入框不可用，请重新选择",
+                    "selectionPolishTargetUnavailable" => {
+                        "capsule.selectionPolish.targetUnavailable"
+                    }
                     "selectionPolishTargetChanged" | "selectionPolishSelectionChanged" => {
-                        "选区已变化，未替换"
+                        "capsule.selectionPolish.selectionChanged"
                     }
                     _ if error.code == openless_core::BackendErrorCode::Busy => {
-                        "选区润色正在进行中"
+                        "capsule.selectionPolish.busy"
                     }
-                    _ => "润色失败，请重试",
+                    _ => "capsule.selectionPolish.failed",
                 };
                 let state = if matches!(
                     error.code,
@@ -1557,8 +1563,11 @@ pub(super) fn handle_action_hotkey_pressed(inner: &Arc<Inner>, kind: ActionHotke
 /// 下一个 ~30Hz 电平帧会立即夺回胶囊显示，auto-hide timer 也会因代数失效。
 #[cfg(not(mobile))]
 pub(super) fn show_style_switch_capsule(inner: &Arc<Inner>, name: &str) {
+    // 風格名帶动态插值：后端只送 i18n key + percent-encoded 風格名（capsule.styleSwitched|…），
+    // 前端 Capsule.tsx 的 resolveCapsuleMessage 解碼後 t(key, { name })，各語言顯示正字。
+    let encoded: String = url::form_urlencoded::byte_serialize(name.as_bytes()).collect();
     let event_epoch =
-        emit_selection_polish_capsule(inner, CapsuleState::Done, format!("已切换：{name}"));
+        emit_selection_polish_capsule(inner, CapsuleState::Done, format!("capsule.styleSwitched|{encoded}"));
     schedule_selection_polish_capsule_idle(inner, event_epoch, CAPSULE_AUTO_HIDE_DELAY_MS);
 }
 

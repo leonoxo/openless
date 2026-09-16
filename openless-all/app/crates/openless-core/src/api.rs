@@ -1874,6 +1874,7 @@ impl EditObservationSink for CoreEditObservationSink {
             &self.events,
             rule.pattern,
             rule.replacement,
+            edit.anchor.clone(),
         ) {
             log::warn!("failed to queue observed correction: {error}");
         }
@@ -1886,6 +1887,7 @@ fn queue_pending_correction_state(
     events: &Arc<EventBus>,
     pattern: String,
     replacement: String,
+    anchor: Option<crate::host_document::EditAnchor>,
 ) -> Result<Option<PendingCorrection>, BackendError> {
     if pattern.trim().is_empty() || replacement.trim().is_empty() {
         return Err(BackendError::new(
@@ -1908,6 +1910,7 @@ fn queue_pending_correction_state(
             id: uuid::Uuid::new_v4().to_string(),
             pattern,
             replacement,
+            anchor,
         };
         pending.push(suggestion.clone());
         (suggestion, pending.clone())
@@ -4248,6 +4251,7 @@ impl OpenLessBackend {
             &self.events,
             pattern,
             replacement,
+            None,
         )
     }
 
@@ -8643,6 +8647,7 @@ mod tests {
             target: "Polished".into(),
             before: String::new(),
             after: String::new(),
+            anchor: None,
         };
         observation.publish(0, edit.clone());
         assert_eq!(backend.pending_corrections().len(), 1);

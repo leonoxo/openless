@@ -109,6 +109,14 @@ const EDIT_SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
 /// 那段文字原样出现。等不到就一直不锚定，等于功能静默失效 —— 宁可基线略有偏差。
 const BASELINE_ANCHOR_TIMEOUT: Duration = Duration::from_millis(1500);
 
+/// 切走前台 app 后容忍多久再收工。
+///
+/// 以前是「前台一换就立刻 disarm」。但用户改完一个字、顺手 Alt+Tab 到别处看一眼
+/// 又回来（或系统弹个通知挡了一下），观察器已经拆了 —— 回来要么重新 armed 一整轮，
+/// 要么那次还没定稿的改动就白丢了。给 3 秒宽限：短暂切走不算收工，回到同一个 app
+/// 就继续盯；真的 3 秒没回来，才判定离开。
+const FRONT_AWAY_GRACE: Duration = Duration::from_secs(3);
+
 #[repr(C)]
 struct OpaqueAxRef(c_void);
 type AxUiElementRef = *mut OpaqueAxRef;
@@ -132,6 +140,25 @@ const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const K_AX_VALUE_CF_RANGE_TYPE: i32 = 4;
 /// `kCFNumberCFIndexType` —— 按 `CFIndex`（isize）取值，与 AX 的下标宽度一致。
 const K_CF_NUMBER_CF_INDEX_TYPE: i32 = 14;
+/// `kAXValueTypeCGPoint` —— `AXPosition` 属性装的是这个类型。
+const K_AX_VALUE_TYPE_CG_POINT: i32 = 2;
+/// `kAXValueTypeCGSize` —— `AXSize` 属性装的是这个类型。
+const K_AX_VALUE_TYPE_CG_SIZE: i32 = 3;
+
+/// `CGPoint` / `CGSize` 的 C 布局（arm64/x86_64 上两个 f64）。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CgPoint {
+    x: f64,
+    y: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CgSize {
+    width: f64,
+    height: f64,
+}
 
 /// AXObserver 的不透明句柄。
 #[repr(C)]
@@ -471,6 +498,55 @@ unsafe fn copy_attr(element: AxUiElementRef, attribute: &[u8]) -> Option<CFTypeR
     }
 }
 
+/// 读一个装 `AXValue` 的几何属性（`AXPosition` / `AXSize`），解出里面的
+/// `CGPoint` / `CGSize`。返回的 CFTypeRef **调用方负责 `CFRelease`**。
+///
+/// 用 `AXValueGetValue` 而不是自己拆结构体：AXValue 是「类型 + 数据」的封装，
+/// 布局由系统定义，手拆等于赌系统永远不扩字段。
+unsafe fn read_ax_value_geom(
+    value: CFTypeRef,
+    ax_value_type: i32,
+) -> Option<(f64, f64)> {
+    if ax_value_type == K_AX_VALUE_TYPE_CG_POINT {
+        let mut point = CgPoint::default();
+        let ok = AXValueGetValue(value as AxValueRef, ax_value_type, &mut point as *mut _ as *mut c_void);
+        if ok != 0 {
+            Some((point.x, point.y))
+        } else {
+            None
+        }
+    } else {
+        let mut size = CgSize::default();
+        let ok = AXValueGetValue(value as AxValueRef, ax_value_type, &mut size as *mut _ as *mut c_void);
+        if ok != 0 {
+            Some((size.width, size.height))
+        } else {
+            None
+        }
+    }
+}
+
+/// 读被观察文字框的屏幕 frame（`AXPosition` + `AXSize`，logical points）。
+///
+/// AX 不保证每个元素都报位置（拿不到就 `None`，卡片定位退回兜底）。这里是
+/// **屏幕**坐标：多显示器下非主显示器的原点不为零，窗口那边换算时要用同一台
+/// 显示器的原点做参考。两个属性各自 `CFRelease`，提前返回也不能漏。
+unsafe fn read_element_frame(element: AxUiElementRef) -> Option<super::EditAnchor> {
+    let position_ref = copy_attr(element, b"AXPosition\0")?;
+    let size_ref = copy_attr(element, b"AXSize\0")?;
+    let result = read_ax_value_geom(position_ref, K_AX_VALUE_TYPE_CG_POINT)
+        .zip(read_ax_value_geom(size_ref, K_AX_VALUE_TYPE_CG_SIZE))
+        .map(|(position, size)| super::EditAnchor {
+            x: position.0,
+            y: position.1,
+            width: size.0,
+            height: size.1,
+        });
+    CFRelease(position_ref);
+    CFRelease(size_ref);
+    result
+}
+
 unsafe fn cfstring_from_static(bytes_with_nul: &[u8]) -> Option<CFStringRef> {
     let cstr = CStr::from_bytes_with_nul(bytes_with_nul).ok()?;
     let s = CFStringCreateWithCString(std::ptr::null(), cstr.as_ptr(), K_CF_STRING_ENCODING_UTF8);
@@ -714,7 +790,10 @@ unsafe fn settle_pending_edit(ctx: &WatchContext, force: bool) {
         return;
     };
     let baseline = ctx.baseline.borrow().clone();
-    let Some(edit) = minimal_edit(&baseline, &current) else {
+    // 改动定稿这一刻读文字框位置：卡片要弹在改动处附近。拿不到（None）就
+    // 由窗口那边兜底定位，不阻塞上报。
+    let anchor = read_element_frame(ctx.element.as_ref());
+    let Some(edit) = minimal_edit(&baseline, &current, anchor) else {
         log::debug!(
             "[cursor-context] settled but no minimal edit (baseline={} chars, current={} chars)",
             baseline.chars().count(),
@@ -956,6 +1035,8 @@ fn run_edit_watch_loop(
 
         let started = Instant::now();
         let mut end_reason = "disarmed";
+        // 切走前台 app 的时刻。回到同一 app 时清空；超过 [`FRONT_AWAY_GRACE`] 才收工。
+        let mut front_away_since: Option<Instant> = None;
         loop {
             if stop.load(Ordering::Relaxed) {
                 break;
@@ -965,11 +1046,20 @@ fn run_edit_watch_loop(
                 end_reason = "timeout";
                 break;
             }
-            // 前台 app 一换就收工 —— 继续盯着别人的窗口既没意义也不该做。
+            // 前台 app 换走不再立刻收工：给一段宽限（见 [`FRONT_AWAY_GRACE`]），
+            // 短暂切走又回来不算离开。
             let (_, current_bundle) = crate::selection::current_front_app_parts();
-            if current_bundle != bundle_id {
-                end_reason = "front app changed";
-                break;
+            if current_bundle == bundle_id {
+                front_away_since = None;
+            } else {
+                match front_away_since {
+                    Some(since) if since.elapsed() >= FRONT_AWAY_GRACE => {
+                        end_reason = "front app changed";
+                        break;
+                    }
+                    Some(_) => {}
+                    None => front_away_since = Some(Instant::now()),
+                }
             }
             let result = CFRunLoop::run_in_mode(mode, Duration::from_secs(1), false);
             // 解除信号可能正好在这 1 秒里到达。先看一眼再判定 —— 否则会上报一条属于

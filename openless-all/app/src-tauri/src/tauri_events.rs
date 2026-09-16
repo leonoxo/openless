@@ -158,11 +158,17 @@ async fn forward_legacy_event(
             capsule_owners.qa_voice = None;
             capsule_owners.qa_capsule = None;
             if let Some(coordinator) = app.try_state::<Arc<crate::coordinator::Coordinator>>() {
+                // 文案走前端 i18n：后端只送 capsule.dictation.* key（前端
+                // resolveCapsuleMessage 按語言解析），不硬編碼中文。
                 let message = match &result.inserted {
-                    openless_core::DictationInsertStatus::Inserted => "已输入",
-                    openless_core::DictationInsertStatus::PasteSent => "已发送粘贴，请确认",
-                    openless_core::DictationInsertStatus::CopiedFallback => "已复制，请手动粘贴",
-                    openless_core::DictationInsertStatus::NotRequested => "处理完成",
+                    openless_core::DictationInsertStatus::Inserted => "capsule.dictation.inserted",
+                    openless_core::DictationInsertStatus::PasteSent => "capsule.dictation.pasteSent",
+                    openless_core::DictationInsertStatus::CopiedFallback => {
+                        "capsule.dictation.copiedPaste"
+                    }
+                    openless_core::DictationInsertStatus::NotRequested => {
+                        "capsule.dictation.done"
+                    }
                 };
                 coordinator.present_core_capsule(CapsulePayload {
                     state: CapsuleState::Done,
@@ -246,8 +252,9 @@ async fn forward_legacy_event(
                             state,
                             level: *level,
                             elapsed_ms: *elapsed_ms,
+                            // 文案走前端 i18n（capsule.voice.preparing），不硬編碼中文。
                             message: (*phase == LessComputerVoicePhase::Starting)
-                                .then(|| "正在准备语音…".to_string()),
+                                .then(|| "capsule.voice.preparing".to_string()),
                             inserted_chars: None,
                             translation: false,
                             operating: true,

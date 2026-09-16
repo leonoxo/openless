@@ -1038,6 +1038,8 @@ impl SelectionPlatformBridge for NativeSelectionPlatformBridge {
             }
         }
         if reactivate && !crate::selection::reactivate_selection_insertion_target(target) {
+            // instrumentation: 選區確認失敗分支此前無 log（confirm 靜默失敗）。
+            log::warn!("[selection-polish] apply: reactivate failed (target not front)");
             return Err(BackendError::new(
                 BackendErrorCode::Platform,
                 "selectionPolishTargetUnavailable",
@@ -1045,6 +1047,15 @@ impl SelectionPlatformBridge for NativeSelectionPlatformBridge {
         }
         let validation = crate::selection::validate_selection_insertion_target(target, source_text);
         if let Some(code) = validation.error_code() {
+            // instrumentation: 記錄是 target 變更還是選區文字不一致（严格 == 比對，
+            // 一個字元差異即拒貼）。
+            log::warn!(
+                "[selection-polish] apply: validation={:?} code={} expected_chars={} actual_preview={:?}",
+                validation,
+                code,
+                source_text.chars().count(),
+                &source_text.chars().take(40).collect::<String>()
+            );
             let error_code = match validation {
                 crate::selection::SelectionInsertionTargetValidation::TargetUnavailable => {
                     BackendErrorCode::Platform
@@ -1068,11 +1079,14 @@ impl SelectionPlatformBridge for NativeSelectionPlatformBridge {
             ));
         }
         let preferences = self.preferences()?;
-        map_insert_status(crate::insertion::TextInserter::new().insert(
+        let status = crate::insertion::TextInserter::new().insert(
             replacement_text,
             preferences.restore_clipboard_after_paste,
             preferences.paste_shortcut,
-        ))
+        );
+        // instrumentation: insert 結果此前無 log（CopiedFallback=只複製未貼上）。
+        log::info!("[selection-polish] apply: insert status={:?}", status);
+        map_insert_status(status)
     }
 }
 

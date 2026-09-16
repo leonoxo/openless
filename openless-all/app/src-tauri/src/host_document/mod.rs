@@ -32,8 +32,8 @@ mod macos;
 #[allow(unused_imports)]
 pub use openless_core::host_document::{
     edit_is_within_typed_text, is_vocab_worthy, learned_rule, minimal_edit, plan_window,
-    utf16_offset_to_char_offset, window_around_cursor, DocumentWindow, EditPair, LearnedRule,
-    WindowSpan,
+    utf16_offset_to_char_offset, window_around_cursor, DocumentWindow, EditAnchor, EditPair,
+    LearnedRule, WindowSpan,
 };
 
 use serde::Serialize;

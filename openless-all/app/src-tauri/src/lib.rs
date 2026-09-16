@@ -595,6 +595,11 @@ fn run_desktop() {
         .manage(TrayMicrophoneDeviceCache(parking_lot::Mutex::new(Vec::new())))
         .setup(move |app| {
             init_file_logger();
+            // 題 3 修法：全域 panic hook → 把 panic 訊息/位置/thread 寫進 openless.log，
+            // 再交還預設 hook（保留 stderr + crash report）。06:35 crash 是 Rust panic
+            // 跨 FFI 邊界被 Tao 暫存延遲 rethrow → abort，原始訊息當時未留存；有了這個
+            // hook，下次再發時 log 直接有元兇。純新增、不改行為。
+            install_panic_log_hook();
             log::info!("=== OpenLess 启动 ===");
 
             #[cfg(target_os = "windows")]
@@ -1587,6 +1592,35 @@ fn reset_tcc_service_for_restart(service: &str, reason: &str) {
 }
 
 /// 把日志同时写到 stderr + ~/Library/Logs/OpenLess/openless.log（match Swift `Log.swift`）。
+/// 全域 panic hook：把 panic 訊息 + 位置 + thread 寫進 log（openless.log），
+/// 然後交還給預設 hook（stderr / crash report）。用於捕捉「panic 跨 FFI 邊界
+/// 被 Tao 暫存延遲 rethrow → abort」這類原始訊息會遺失的崩潰。純新增、不改行為。
+fn install_panic_log_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Box<dyn Any>".to_string()
+        };
+        let location = info
+            .location()
+            .map(|l| l.to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("<unnamed>").to_string();
+        log::error!(
+            "=== RUST PANIC (will crash) thread={} location={} message={} ===",
+            name,
+            location,
+            msg
+        );
+        default_hook(info);
+    }));
+}
+
 pub(crate) fn init_file_logger() {
     use simplelog::{
         ColorChoice, CombinedLogger, ConfigBuilder, LevelFilter, TermLogger, TerminalMode,
@@ -3008,6 +3042,25 @@ pub(crate) fn show_selection_polish_preview<R: tauri::Runtime>(app: &AppHandle<R
                         install_selection_preview_first_click_guard(ns);
                         unsafe {
                             let _: () = msg_send![ns, orderFrontRegardless];
+                            // WebKit web content 不吃 accept_first_mouse：窗口只是
+                            // orderFrontRegardless（非 key）时，对 HTML 按钮的**第一次**
+                            // 点击会被 AppKit 当作"扶 key 点击"吞掉（只把面板扶成 key
+                            // window，点击不投递给 web content）——用户必须先在编辑框
+                            // 点一下、再点"替換"。非激活 NSPanel 的 makeKey 只给面板
+                            // 键盘焦点、不激活 app（Spotlight 同款，QA 窗同手法）；选区
+                            // 在热键触发时已 capture，此处扶 key 不影响原选区，之后的
+                            // confirm reactivate/validate 也不受影响。
+                            // makeKeyAndOrderFront: 是 NSWindow 基本方法（qa.rs 同款用法），
+                            // 包 exception::catch 兜底。注意：**不要**发 setBecomesKeyWindow:
+                            // ——becomesKeyWindow 是只读属性没有 setter，误发会
+                            // doesNotRecognizeSelector → SIGABRT（2026-09-10 crash x2）。
+                            let result = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                                let nil: *mut AnyObject = std::ptr::null_mut();
+                                let _: () = msg_send![ns, makeKeyAndOrderFront: nil];
+                            }));
+                            if let Err(e) = result {
+                                log::warn!("[selection-polish] makeKeyAndOrderFront raised (caught): {e:?}");
+                            }
                         }
                     }
                 }
@@ -3167,7 +3220,7 @@ fn ensure_selection_voice_intent_prompt_window<R: tauri::Runtime>(
         "selection-voice-intent",
         WebviewUrl::App("index.html?window=selection-voice-intent".into()),
     )
-    .title("OpenLess 选区语音")
+    .title("OpenLess 選區語音")
     .inner_size(420.0, 280.0)
     .min_inner_size(360.0, 240.0)
     .resizable(true)

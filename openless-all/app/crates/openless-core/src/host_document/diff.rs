@@ -3,15 +3,33 @@ const CONTEXT_CHARS: usize = 256;
 const MIN_PATTERN_CHARS: usize = 2;
 const MAX_PHRASE_CHARS: usize = 12;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EditAnchor {
+    /// 被编辑文字框的屏幕坐标（logical points，主显示器左上角为原点，y 向下）。
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct EditPair {
     pub source: String,
     pub target: String,
+    /// 改动处之前的上下文（用于把「禹→鱼」扩成「大禹→大鱼」），不入库。
     pub before: String,
+    /// 改动处之后的上下文。
     pub after: String,
+    /// 改动的文字框在屏幕上的位置 —— 建议卡片弹在编辑处附近用。
+    /// 拿不到时是 `None`（AX 不保证每个元素都报位置），卡片定位自己兜底。
+    pub anchor: Option<EditAnchor>,
 }
 
-pub fn minimal_edit(before_text: &str, after_text: &str) -> Option<EditPair> {
+pub fn minimal_edit(
+    before_text: &str,
+    after_text: &str,
+    anchor: Option<EditAnchor>,
+) -> Option<EditPair> {
     let before_text = before_text.trim_end();
     let after_text = after_text.trim_end();
     if before_text == after_text {
@@ -42,6 +60,7 @@ pub fn minimal_edit(before_text: &str, after_text: &str) -> Option<EditPair> {
         after: old[after_start..(after_start + CONTEXT_CHARS).min(old.len())]
             .iter()
             .collect(),
+        anchor,
     })
 }
 
@@ -116,7 +135,7 @@ mod tests {
 
     #[test]
     fn diff_and_rule_are_char_safe() {
-        let edit = minimal_edit("今天讲大禹", "今天讲大鱼").unwrap();
+        let edit = minimal_edit("今天讲大禹", "今天讲大鱼", None).unwrap();
         assert_eq!((edit.source.as_str(), edit.target.as_str()), ("禹", "鱼"));
         let rule = learned_rule(&edit).unwrap();
         assert_eq!(
