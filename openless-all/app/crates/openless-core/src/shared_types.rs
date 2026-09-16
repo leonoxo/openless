@@ -1491,7 +1491,7 @@ impl Default for UserPreferences {
                 &None,
             )
             .expect("default legacy hotkey is not custom"),
-            default_mode: PolishMode::Structured,
+            default_mode: PolishMode::Light,
             enabled_modes: vec![
                 PolishMode::Raw,
                 PolishMode::Light,
