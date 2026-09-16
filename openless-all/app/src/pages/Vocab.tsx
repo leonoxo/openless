@@ -364,7 +364,9 @@ export function Vocab() {
           desc={t('vocab.corrections.tip')}
         >
           <div style={{ display: 'grid', gap: 10 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1fr) auto minmax(0, 1fr) auto', gap: 8, alignItems: mobile ? 'stretch' : 'center' }}>
+            {/* 內容區頂端無 padding（_atoms.tsx Collapsible: '0 18px 18px'），
+                輸入列補 marginTop 以免貼到標題/說明文字上緣。 */}
+            <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1fr) auto minmax(0, 1fr) auto', gap: 8, alignItems: mobile ? 'stretch' : 'center', marginTop: 10 }}>
               <input
                 value={rulePatternDraft}
                 onChange={e => setRulePatternDraft(e.target.value)}

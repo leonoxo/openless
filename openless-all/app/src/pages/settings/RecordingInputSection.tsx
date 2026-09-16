@@ -650,10 +650,18 @@ function AutostartRow() {
 
   return (
     <SettingRow label={t('settings.recording.startupAtBoot')}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {loaded ? <Toggle on={enabled} onToggle={onToggle} /> : null}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+        {loaded ? (
+          // Toggle 的 flex: "0 0 36px" 是照水平布局写的（flex-basis 撑宽度）。
+          // 外层 column flex 的主轴是垂直的，36px 会被吃成高度 → 开关被渲染成
+          // 36x36 圆（borderRadius: 999）、圆钮漂到右上角。包一层水平 flex 让
+          // flex-basis 回到主轴（宽度）。
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Toggle on={enabled} onToggle={onToggle} />
+          </div>
+        ) : null}
         {error && (
-          <div style={{ fontSize: 11, color: 'var(--ol-err)', marginTop: 4, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: 'var(--ol-err)', marginTop: 4, lineHeight: 1.5, maxWidth: 320, textAlign: 'right' }}>
             {t('settings.recording.startupAtBootError', { message: error })}
           </div>
         )}

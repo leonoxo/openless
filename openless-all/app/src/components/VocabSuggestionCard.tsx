@@ -18,6 +18,7 @@ import {
   rejectPendingCorrection,
 } from '../lib/ipc';
 import type { PendingCorrection } from '../lib/types';
+import { playVocabCardCue } from '../lib/audioCue';
 
 /// 卡片自己消失的时间，与后端 `VOCAB_SUGGESTION_TTL_MS` 对齐。
 const TTL_MS = 10_000;
@@ -31,6 +32,16 @@ export function VocabSuggestionCard({ suggestions }: VocabSuggestionCardProps) {
   // 点过的立刻从卡片上消失——不等后端回音，点了就该有反应。
   const [resolved, setResolved] = useState<Set<string>>(new Set());
   const timerRef = useRef<number | null>(null);
+  // 已经播过提示音的建议 id。同一批不重复叮，只有新建议追加进卡片时才响。
+  const cuedIds = useRef<Set<string>>(new Set());
+
+  // 有「没叮过」的新建议出现时播一次卡片提示音（轻「叮」，不抢录音双音的戏）。
+  useEffect(() => {
+    const fresh = suggestions.some(s => !cuedIds.current.has(s.id));
+    if (!fresh) return;
+    for (const s of suggestions) cuedIds.current.add(s.id);
+    playVocabCardCue();
+  }, [suggestions]);
 
   // 10 秒倒计时。列表一变就重新计时：同一次听写里连着改了几个词会陆续追加进来，
   // 不重置的话后来的那条可能刚出现就没了。

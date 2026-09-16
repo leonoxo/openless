@@ -14,6 +14,7 @@ import {
   qaWindowDismiss,
 } from './lib/ipc';
 import type { PlatformCapabilities } from './lib/types';
+import { useTranslation } from 'react-i18next';
 import {
   isWindowHotkeyKeyboardCandidate,
   windowMouseHotkeyCode,
@@ -73,6 +74,7 @@ const ANDROID_SETUP_WIZARD_COMPLETE_KEY = 'openless.androidSetupWizardComplete';
 export function App(props: AppProps) {
   const [ready, setReady] = useState(!isTauri);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!isTauri) return;
@@ -86,10 +88,10 @@ export function App(props: AppProps) {
   }, []);
 
   if (error) {
-    return <div role="alert">OpenLess Core 无法启动或版本不兼容。 {error}</div>;
+    return <div role="alert">{t('coreGate.incompatible')} {error}</div>;
   }
   if (!ready) {
-    return <div role="status">正在检查 OpenLess Core 兼容性…</div>;
+    return <div role="status">{t('coreGate.checking')}</div>;
   }
   return <ReadyApp {...props} />;
 }
@@ -130,6 +132,7 @@ function ReadyApp({ isCapsule, isQa, isSelectionPolishPreview, isSelectionVoiceI
   // Windows 启动不应被权限探测阻塞首屏。
   const [gate, setGate] = useState<Gate>(isTauri ? 'checking' : 'ready');
   const [startupError, setStartupError] = useState<string | null>(null);
+  const { t: tGate } = useTranslation();
   const [platformCaps, setPlatformCaps] = useState<PlatformCapabilities | null>(null);
   const [mobileQaOpen, setMobileQaOpen] = useState(false);
   const completeOnboarding = () => {
@@ -342,12 +345,12 @@ function ReadyApp({ isCapsule, isQa, isSelectionPolishPreview, isSelectionVoiceI
   }, [os]);
 
   if (gate === 'checking') {
-    return <div role="status">正在检查 OpenLess Core 兼容性…</div>;
+    return <div role="status">{tGate('coreGate.checking')}</div>;
   }
   if (gate === 'incompatible') {
     return (
       <div role="alert">
-        OpenLess Core 无法启动或版本不兼容。{startupError ? ` ${startupError}` : ''}
+        {tGate('coreGate.incompatible')}{startupError ? ` ${startupError}` : ''}
       </div>
     );
   }

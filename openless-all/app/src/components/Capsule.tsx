@@ -749,9 +749,26 @@ export function Capsule({ os: forcedOs }: CapsuleProps = {}) {
   const os = forcedOs ?? detectOS();
   const preview = useMemo(() => getPreviewCapsulePayload(), []);
   const metrics = getCapsulePillMetrics(os);
+  // 後端 capsule 文案改送 i18n key（capsule.* 前綴，插值格式 key|percent-encoded-name）：
+  // 在此單點解析成當前語言文案，避免中文硬編碼進事件負載（zh-TW 會看到簡體）。
+  // 非 capsule. 開頭的訊息（舊版/第三方直送文字）原樣透過，向下兼容。
+  const resolveMessage = useCallback(
+    (raw: string | undefined): string | undefined => {
+      if (!raw) return raw;
+      const bar = raw.indexOf('|');
+      const key = bar >= 0 ? raw.slice(0, bar) : raw;
+      if (!key.startsWith('capsule.')) return raw;
+      try {
+        return bar >= 0 ? t(key, { name: decodeURIComponent(raw.slice(bar + 1)) }) : t(key);
+      } catch {
+        return raw;
+      }
+    },
+    [t],
+  );
   const [state, setState] = useState<CapsuleState>(preview.state);
   const [level, setLevel] = useState<number>(preview.level);
-  const [message, setMessage] = useState<string | undefined>(preview.message);
+  const [message, setMessage] = useState<string | undefined>(resolveMessage(preview.message));
   const [localAsrText, setLocalAsrText] = useState('');
   const transcriptViewRef = useRef<TranscriptViewState>({
     sessionId: null,
@@ -829,7 +846,7 @@ export function Capsule({ os: forcedOs }: CapsuleProps = {}) {
         }
         setState(p.state);
         setLevel(p.level ?? 0);
-        setMessage(p.message ?? undefined);
+        setMessage(resolveMessage(p.message ?? undefined));
         if (p.state === 'recording') setLocalAsrText('');
         setTranslation(p.translation === true);
         setWarming(p.warming === true);

@@ -10,6 +10,10 @@ export const ja: typeof zhCN = {
     name: 'OpenLess',
     tagline: '自然に話し、きれいに書く',
   },
+  coreGate: {
+    checking: 'OpenLess Core の互換性を確認中…',
+    incompatible: 'OpenLess Core を起動できないか、バージョンが互換しません。',
+  },
   common: {
     loading: '読み込み中…',
     retry: '再試行',
@@ -44,6 +48,21 @@ export const ja: typeof zhCN = {
       replaced: '置き換えました',
       noSelection: '選択されていません',
       failed: '推敲に失敗しました。もう一度お試しください',
+      previewOpen: 'プレビューを開きました。確認をお待ちしています',
+      copiedPaste: '結果をコピーしました。手動で貼り付けてください',
+      targetUnavailable: '入力先を使えません。再選択してください',
+      selectionChanged: '選択範囲が変わり、置換されませんでした',
+      busy: '推敲処理中です',
+    },
+    styleSwitched: '切り替えました：{{name}}',
+    dictation: {
+      inserted: '入力しました',
+      pasteSent: '貼り付けを送信しました。確認してください',
+      copiedPaste: 'コピーしました。手動で貼り付けてください',
+      done: '処理完了',
+    },
+    voice: {
+      preparing: '音声準備中…',
     },
   },
   selectionPolishPreview: {

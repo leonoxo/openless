@@ -8,6 +8,10 @@ export const en: typeof zhCN = {
     name: 'OpenLess',
     tagline: 'Speak naturally, write perfectly',
   },
+  coreGate: {
+    checking: 'Checking OpenLess Core compatibility…',
+    incompatible: 'OpenLess Core failed to start or the version is incompatible.',
+  },
   common: {
     loading: 'Loading…',
     retry: 'Retry',
@@ -42,6 +46,21 @@ export const en: typeof zhCN = {
       replaced: 'Replaced',
       noSelection: 'Nothing selected',
       failed: 'Polish failed, try again',
+      previewOpen: 'Preview opened, awaiting confirm',
+      copiedPaste: 'Result copied — paste manually',
+      targetUnavailable: 'Target input unavailable, please reselect',
+      selectionChanged: 'Selection changed, not replaced',
+      busy: 'Polishing in progress',
+    },
+    styleSwitched: 'Switched: {{name}}',
+    dictation: {
+      inserted: 'Typed',
+      pasteSent: 'Paste sent, please confirm',
+      copiedPaste: 'Copied — paste manually',
+      done: 'Done',
+    },
+    voice: {
+      preparing: 'Preparing voice…',
     },
   },
   selectionPolishPreview: {

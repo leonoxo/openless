@@ -33,6 +33,14 @@ export function cueTotalDurationMs(tones: CueTone[]): number {
   return tones.reduce((max, t) => Math.max(max, t.startMs + t.durationMs), 0);
 }
 
+// 「要记住这个词吗」卡片弹出提示音：单音「叮」，比录音提示音更轻（peakGain 更低、更短），
+// 不跟录音双音抢戏——卡片是旁路提醒，录音提示音才是主事件。
+export function vocabCardCueTones(): CueTone[] {
+  return [
+    { freq: 1046.5, startMs: 0, durationMs: 140, peakGain: 0.1 },
+  ];
+}
+
 // Safari/WKWebView 旧前缀；用结构化类型而非 any 拿到 webkit 兜底构造器。
 type AudioContextCtor = typeof AudioContext;
 interface WebkitWindow {
@@ -193,13 +201,13 @@ export function stopAudioCue(): void {
 
 // 实际排期合成节点。必须在 AudioContext 处于 running（非 suspended）时调用：
 // suspended 时 currentTime 冻结在暂停时刻，节点会排到过期时间点 → 不发声还堆积。
-function scheduleCueVoices(ctx: AudioContext): void {
+function scheduleCueVoices(ctx: AudioContext, tones: CueTone[]): void {
   // 连按热键时先停掉上一轮，避免叠音越来越响。用 stopVoices 而非 stopAudioCue：
   // 这里不该作废自己这一轮的 generation。
   stopVoices();
 
   const base = ctx.currentTime + 0.01;
-  for (const tone of recordStartCueTones()) {
+  for (const tone of tones) {
     try {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -250,18 +258,23 @@ export function primeAudioCue(): void {
 
 /** 播放「开始录音」提示音。无 Web Audio 或被挂起且无法恢复时静默降级。 */
 export function playRecordStartCue(): void {
-  playRecordStartCueOnce(true);
+  playTonesOnce(recordStartCueTones(), true);
+}
+
+/** 播放「卡片弹出」提示音（单音「叮」）。无 Web Audio 或被挂起且无法恢复时静默降级。 */
+export function playVocabCardCue(): void {
+  playTonesOnce(vocabCardCueTones(), true);
 }
 
 // allowRecreate 把「丢弃坏死 ctx 并重试」限制为最多一次，避免在唤不醒的 ctx 上无限递归。
-function playRecordStartCueOnce(allowRecreate: boolean): void {
+function playTonesOnce(tones: CueTone[], allowRecreate: boolean): void {
   const ctx = getContext();
   if (!ctx) return;
 
   // ctx 已 running 直接排期；closed 已在 getContext 重建。其余（suspended / WebKit 非标准
   // interrupted / 未知态）必须先 resume 再排期，不能在 resume 未完成时就用冻结的 currentTime。
   if (audioContextActionForState(ctx.state) !== 'resume') {
-    scheduleCueVoices(ctx);
+    scheduleCueVoices(ctx, tones);
     return;
   }
 
@@ -284,12 +297,12 @@ function playRecordStartCueOnce(allowRecreate: boolean): void {
       allowRecreate,
     });
     if (action === 'schedule') {
-      scheduleCueVoices(ctx);
+      scheduleCueVoices(ctx, tones);
     } else if (action === 'recreate-retry') {
       // resume 被拒、或 resolve 了但 ctx 仍非 running（被音频会话抢占后卡死）——「用久了没
       // 声音」的根因。丢弃这个唤不醒的 ctx，用全新 ctx 重试一次，让共享 ctx 自愈。
       discardContext(ctx);
-      playRecordStartCueOnce(false);
+      playTonesOnce(tones, false);
     }
     // 'drop'：被接管 / 真迟到 / 重试后仍唤不醒——静默放弃。
   };

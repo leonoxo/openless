@@ -119,6 +119,8 @@ export interface PendingCorrection {
   id: string;
   pattern: string;
   replacement: string;
+  /** 改动处文字框的屏幕坐标（logical points）。定位用；拿不到时是 undefined。 */
+  anchor?: { x: number; y: number; width: number; height: number } | null;
 }
 
 /** 为什么这段话没落进目标 app。只用于后端日志，卡片本身不渲染它。 */

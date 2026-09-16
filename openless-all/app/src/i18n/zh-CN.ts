@@ -6,6 +6,10 @@ export const zhCN = {
     name: 'OpenLess',
     tagline: '自然说话，完美书写',
   },
+  coreGate: {
+    checking: '正在检查 OpenLess Core 兼容性…',
+    incompatible: 'OpenLess Core 无法启动或版本不兼容。',
+  },
   common: {
     loading: '加载中…',
     retry: '重试',
@@ -40,6 +44,21 @@ export const zhCN = {
       replaced: '已替换',
       noSelection: '未选中内容',
       failed: '润色失败，请重试',
+      previewOpen: '已打开预览，等待确认',
+      copiedPaste: '已复制结果，请手动粘贴',
+      targetUnavailable: '目标输入框不可用，请重新选择',
+      selectionChanged: '选区已变化，未替换',
+      busy: '选区润色正在进行中',
+    },
+    styleSwitched: '已切换：{{name}}',
+    dictation: {
+      inserted: '已输入',
+      pasteSent: '已发送粘贴，请确认',
+      copiedPaste: '已复制，请手动粘贴',
+      done: '处理完成',
+    },
+    voice: {
+      preparing: '正在准备语音…',
     },
   },
   selectionPolishPreview: {

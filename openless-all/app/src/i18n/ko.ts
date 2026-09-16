@@ -10,6 +10,10 @@ export const ko: typeof zhCN = {
     name: 'OpenLess',
     tagline: '자연스럽게 말하고, 정확하게 작성하세요',
   },
+  coreGate: {
+    checking: 'OpenLess Core 호환성 확인 중…',
+    incompatible: 'OpenLess Core를 시작할 수 없거나 버전이 호환되지 않습니다.',
+  },
   common: {
     loading: '로딩 중…',
     retry: '다시 시도',
@@ -44,6 +48,21 @@ export const ko: typeof zhCN = {
       replaced: '교체됨',
       noSelection: '선택된 내용 없음',
       failed: '다듬기 실패, 다시 시도하세요',
+      previewOpen: '미리보기 열림, 확인 대기',
+      copiedPaste: '결과 복사됨, 직접 붙여넣으세요',
+      targetUnavailable: '대상 입력 상자를 사용할 수 없습니다. 다시 선택하세요',
+      selectionChanged: '선택 영역이 변경되어 교체되지 않음',
+      busy: '다듬기 진행 중',
+    },
+    styleSwitched: '변경됨: {{name}}',
+    dictation: {
+      inserted: '입력됨',
+      pasteSent: '붙여넣기 전송됨, 확인하세요',
+      copiedPaste: '복사됨, 직접 붙여넣으세요',
+      done: '처리 완료',
+    },
+    voice: {
+      preparing: '음성 준비 중…',
     },
   },
   selectionPolishPreview: {
